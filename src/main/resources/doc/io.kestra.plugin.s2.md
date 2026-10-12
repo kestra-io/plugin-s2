@@ -1,16 +1,13 @@
-This is the Kestra plugin template. Use it as a starting point for building a new plugin.
+# How to use the S2 plugin
 
-## What this template ships
+Manage S2 streams and process stream records through Kestra workflows. The plugin supports stream management, record operations, and polling or realtime triggers for incoming records.
 
-- `Example` is a sample `RunnableTask` that reverses an input string.
-- `Trigger` is a sample polling trigger that fires an execution at random.
+## Tasks
 
-## How to build your plugin
+- `CreateStream` creates an S2 stream. `DeleteStream` deletes a stream, and `ListStreams` lists available streams.
+- `Append` appends records to an S2 stream, while `Read` reads records from a stream.
 
-1. Rename the package `io.kestra.plugin.s2` to your own, for example `io.kestra.plugin.myservice`.
-2. Update `group`, `name`, `title`, and `description` in `src/main/resources/metadata/index.yaml`.
-3. Replace `src/main/resources/icons/plugin-icon.svg` with your service's icon.
-4. Replace the `Example` and `Trigger` classes with your real tasks and triggers.
-5. Replace this how-to with documentation for your plugin.
+## Triggers
 
-Run `./gradlew lintPluginDocs` before pushing to validate the plugin documentation.
+- `Trigger` polls an S2 stream for records and starts a Kestra flow execution when records are available.
+- `RealtimeTrigger` consumes S2 stream events through Server Sent Events (SSE) and starts flow executions for incoming records.

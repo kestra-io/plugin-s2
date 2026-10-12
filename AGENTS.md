@@ -2,22 +2,24 @@
 
 ## What
 
-- Provides plugin components under `io.kestra.plugin.s2`.
-- Includes classes such as `Example`, `Trigger`.
+- Provides plugin components under io.kestra.plugin.s2.
+- Tasks: `CreateStream`, `DeleteStream`, `ListStreams`, `Append`, and `Read`.
+- Triggers: `Trigger` and `RealtimeTrigger`.
+- Shared task and trigger behavior lives in AbstractS2Task and AbstractS2Trigger.
 
 ## Why
 
-- What user problem does this solve? Teams need a concrete starting point for building and validating new Kestra plugins without recreating the same project scaffolding from scratch.
-- Why would a team adopt this plugin in a workflow? It gives plugin authors a ready-made reference repo they can adapt alongside their own build, test, and publishing workflow.
-- What operational/business outcome does it enable? It shortens plugin delivery time, reduces setup mistakes, and makes internal or partner plugin development more repeatable.
+- Teams need to integrate S2 streams into Kestra workflows to manage streams, append records, and read stream data.
+- Workflows can react to incoming S2 records through polling or realtime event consumption.
+- The plugin provides a consistent way to incorporate S2 stream operations and event driven workflows into Kestra.
 
 ## How
 
 ### Architecture
 
-Single-module plugin. Source packages under `io.kestra.plugin`:
+Single-module plugin. Source package:
 
-- `s2`
+- `io.kestra.plugin.s2`
 
 Infrastructure dependencies (Docker Compose services):
 
@@ -25,7 +27,15 @@ Infrastructure dependencies (Docker Compose services):
 
 ### Key Plugin Classes
 
-- `io.kestra.plugin.s2.Example`
+- io.kestra.plugin.s2.CreateStream
+- io.kestra.plugin.s2.DeleteStream
+- io.kestra.plugin.s2.ListStreams
+- io.kestra.plugin.s2.Append
+- io.kestra.plugin.s2.Read
+- io.kestra.plugin.s2.Trigger
+- io.kestra.plugin.s2.RealtimeTrigger
+- io.kestra.plugin.s2.AbstractS2Task
+- io.kestra.plugin.s2.AbstractS2Trigger
 
 ### Project Structure
 
@@ -39,7 +49,10 @@ plugin-s2/
 
 ## Local rules
 
-- Base the wording on the implemented packages and classes, not on template README text.
+- Base documentation on implemented classes and verified behavior, not template README content.
+- Follow existing Kestra conventions for task and trigger implementations.
+- Add or update tests when changing task or trigger behavior.
+- Keep polling and realtime trigger behavior clearly distinguished in documentation.
 
 ## References
 
