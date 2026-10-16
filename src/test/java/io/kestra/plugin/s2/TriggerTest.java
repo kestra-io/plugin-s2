@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -40,7 +41,7 @@ class TriggerTest {
     private RunContextInitializer runContextInitializer;
 
     private Path createInitFile() throws Exception {
-        Path initFile = Files.createTempFile("s2-init-", ".json");
+        var initFile = Files.createTempFile("s2-init-", ".json");
 
         Files.writeString(
             initFile,
@@ -73,94 +74,180 @@ class TriggerTest {
         return initFile;
     }
 
-    @Test
-    void shouldTriggerForNewRecords() throws Exception {
-        Path initFile = createInitFile();
-
-        try (GenericContainer<?> s2 = new GenericContainer<>(
-            "ghcr.io/s2-streamstore/s2:0.43.1"
-        )
+    private GenericContainer<?> container(Path initFile) {
+        return new GenericContainer<>("ghcr.io/s2-streamstore/s2:0.43.1")
             .withCommand("lite", "--port", "80", "--init-file", "/s2-init.json")
-            .withFileSystemBind(
-                initFile.toString(),
-                "/s2-init.json",
-                BindMode.READ_ONLY
-            )
+            .withFileSystemBind(initFile.toString(), "/s2-init.json", BindMode.READ_ONLY)
             .withExposedPorts(80)
-            .waitingFor(
-                Wait.forLogMessage(".*starting plain http server.*\\n", 1)
-            )
-        ) {
+            .waitingFor(Wait.forLogMessage(".*starting plain http server.*\\n", 1));
+    }
+
+    private String endpoint(GenericContainer<?> s2) {
+        return "http://localhost:" + s2.getMappedPort(80) + "/v1";
+    }
+
+    private Flow flow() {
+        return Flow.builder()
+            .tenantId("main")
+            .namespace("test")
+            .id("test-flow-" + System.nanoTime())
+            .build();
+    }
+
+    private Trigger trigger(String endpoint, Long seqNum) {
+        return Trigger.builder()
+            .id("watch")
+            .type(Trigger.class.getName())
+            .accessToken(Property.ofValue("test-token"))
+            .basin(Property.ofValue("test-basin"))
+            .basinEndpoint(Property.ofValue(endpoint))
+            .stream(Property.ofValue("orders"))
+            .maxRecords(Property.ofValue(100))
+            .seqNum(seqNum == null ? null : Property.ofValue(seqNum))
+            .build();
+    }
+
+    private TriggerContext triggerContext(Flow flow, Trigger trigger) {
+        return TriggerContext.builder()
+            .namespace(flow.getNamespace())
+            .flowId(flow.getId())
+            .triggerId(trigger.getId())
+            .date(ZonedDateTime.now())
+            .tenantId(flow.getTenantId())
+            .build();
+    }
+
+    private ConditionContext conditionContext(Flow flow, Trigger trigger, TriggerContext triggerContext) {
+        RunContext runContext = runContextInitializer.forScheduler(
+            (DefaultRunContext) runContextFactory.of(flow, trigger),
+            triggerContext,
+            trigger
+        );
+
+        return ConditionContext.builder()
+            .runContext(runContext)
+            .flow(flow)
+            .build();
+    }
+
+    private void append(Flow flow, String endpoint, String... bodies) throws Exception {
+        List<Map<String, String>> records = Stream.of(bodies)
+            .map(body -> Map.of("body", body))
+            .toList();
+
+        Append.builder()
+            .accessToken(Property.ofValue("test-token"))
+            .basin(Property.ofValue("test-basin"))
+            .basinEndpoint(Property.ofValue(endpoint))
+            .stream(Property.ofValue("orders"))
+            .records(Data.from(records))
+            .build()
+            .run(runContextFactory.of(flow, Map.of()));
+    }
+
+    @Test
+    void shouldSkipExistingRecordsOnFirstPoll() throws Exception {
+        try (GenericContainer<?> s2 = container(createInitFile())) {
             s2.start();
 
-            String endpoint =
-                "http://localhost:" + s2.getMappedPort(80) + "/v1";
+            var endpoint = endpoint(s2);
+            var flow = flow();
 
-            Flow flow = Flow.builder()
-                .tenantId("main")
-                .namespace("test")
-                .id("test-flow-" + System.nanoTime())
-                .build();
+            append(flow, endpoint, "old 0", "old 1");
 
-            Trigger trigger = Trigger.builder()
-                .id("watch")
-                .type(Trigger.class.getName())
-                .accessToken(Property.ofValue("test-token"))
-                .basin(Property.ofValue("test-basin"))
-                .basinEndpoint(Property.ofValue(endpoint))
-                .stream(Property.ofValue("orders"))
-                .maxRecords(Property.ofValue(100))
-                .build();
+            Trigger trigger = trigger(endpoint, null);
+            TriggerContext triggerContext = triggerContext(flow, trigger);
+            ConditionContext conditionContext = conditionContext(flow, trigger, triggerContext);
 
-            TriggerContext triggerContext = TriggerContext.builder()
-                .namespace(flow.getNamespace())
-                .flowId(flow.getId())
-                .triggerId(trigger.getId())
-                .date(ZonedDateTime.now())
-                .tenantId(flow.getTenantId())
-                .build();
+            assertThat(trigger.evaluate(conditionContext, triggerContext).isPresent(), is(false));
 
-            RunContext runContext = runContextInitializer.forScheduler(
-                (DefaultRunContext) runContextFactory.of(flow, trigger),
-                triggerContext,
-                trigger
-            );
+            append(flow, endpoint, "new 2", "new 3", "new 4");
 
-            RunContext taskRunContext = runContextFactory.of(flow, Map.of());
-
-            Append append = Append.builder()
-                .accessToken(Property.ofValue("test-token"))
-                .basin(Property.ofValue("test-basin"))
-                .basinEndpoint(Property.ofValue(endpoint))
-                .stream(Property.ofValue("orders"))
-                .records(Data.from(List.of(
-                    Map.of("body", "record 0"),
-                    Map.of("body", "record 1"),
-                    Map.of("body", "record 2")
-                )))
-                .build();
-
-            append.run(taskRunContext);
-
-            ConditionContext conditionContext = ConditionContext.builder()
-                .runContext(runContext)
-                .flow(flow)
-                .build();
-
-            Optional<Execution> result = trigger.evaluate(
-                conditionContext,
-                triggerContext
-            );
+            var result = trigger.evaluate(conditionContext, triggerContext);
 
             assertThat(result.isPresent(), is(true));
+            assertThat(((Number) result.get().getTrigger().getVariables().get("size")).intValue(), is(3));
 
-            Optional<Execution> secondResult = trigger.evaluate(
-                conditionContext,
-                triggerContext
-            );
-
-            assertThat(secondResult.isPresent(), is(false));
+            assertThat(trigger.evaluate(conditionContext, triggerContext).isPresent(), is(false));
         }
+    }
+
+    @Test
+    void shouldNotSkipRecordsAppendedAfterFirstPollOnEmptyStream() throws Exception {
+        try (GenericContainer<?> s2 = container(createInitFile())) {
+            s2.start();
+
+            var endpoint = endpoint(s2);
+            var flow = flow();
+
+            Trigger trigger = trigger(endpoint, null);
+            TriggerContext triggerContext = triggerContext(flow, trigger);
+            ConditionContext conditionContext = conditionContext(flow, trigger, triggerContext);
+
+            assertThat(trigger.evaluate(conditionContext, triggerContext).isPresent(), is(false));
+
+            append(flow, endpoint, "first", "second");
+
+            var result = trigger.evaluate(conditionContext, triggerContext);
+
+            assertThat(result.isPresent(), is(true));
+            assertThat(((Number) result.get().getTrigger().getVariables().get("size")).intValue(), is(2));
+        }
+    }
+
+    @Test
+    void shouldReplayFromInitialSeqNum() throws Exception {
+        try (GenericContainer<?> s2 = container(createInitFile())) {
+            s2.start();
+
+            var endpoint = endpoint(s2);
+            var flow = flow();
+
+            append(flow, endpoint, "record 0", "record 1", "record 2");
+
+            Trigger trigger = trigger(endpoint, 0L);
+            TriggerContext triggerContext = triggerContext(flow, trigger);
+            ConditionContext conditionContext = conditionContext(flow, trigger, triggerContext);
+
+            var result = trigger.evaluate(conditionContext, triggerContext);
+
+            assertThat(result.isPresent(), is(true));
+            assertThat(((Number) result.get().getTrigger().getVariables().get("size")).intValue(), is(3));
+
+            assertThat(trigger.evaluate(conditionContext, triggerContext).isPresent(), is(false));
+        }
+    }
+
+    @Test
+    void shouldRejectMultipleInitialPositions() throws Exception {
+        var flow = flow();
+
+        Trigger trigger = Trigger.builder()
+            .id("watch")
+            .type(Trigger.class.getName())
+            .accessToken(Property.ofValue("test-token"))
+            .basin(Property.ofValue("test-basin"))
+            .basinEndpoint(Property.ofValue("http://localhost:1234/v1"))
+            .stream(Property.ofValue("orders"))
+            .seqNum(Property.ofValue(1L))
+            .timestamp(Property.ofValue(2L))
+            .build();
+
+        TriggerContext triggerContext = triggerContext(flow, trigger);
+        ConditionContext conditionContext = ConditionContext.builder()
+            .runContext(runContextFactory.of(flow, Map.of()))
+            .flow(flow)
+            .build();
+
+        IllegalArgumentException exception = assertThrows(
+            IllegalArgumentException.class,
+            () -> trigger.evaluate(conditionContext, triggerContext)
+        );
+
+        assertThat(
+            exception.getMessage(),
+            is("Only one of 'seqNum', 'timestamp' or 'tailOffset' can be set")
+        );
     }
 
     @Test

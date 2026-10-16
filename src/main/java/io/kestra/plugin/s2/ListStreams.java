@@ -78,10 +78,8 @@ public class ListStreams extends AbstractS2Task implements RunnableTask<ListStre
         description = "Maximum number of streams to return."
     )
     @PluginProperty(group = "main")
-    @Min(0)
-    @Max(1000)
     @Builder.Default
-    private Property<Integer> limit = Property.ofValue(1000);
+    private Property<@Min(0) @Max(1000) Integer> limit = Property.ofValue(1000);
 
     @Override
     public Output run(RunContext runContext) throws Exception {
@@ -112,8 +110,26 @@ public class ListStreams extends AbstractS2Task implements RunnableTask<ListStre
             );
         }
 
-        return JacksonMapper.ofJson()
-            .readValue(response.getBody(), Output.class);
+        return toOutput(response.getBody());
+    }
+
+    static Output toOutput(String responseBody) throws Exception {
+        if (responseBody == null || responseBody.isBlank()) {
+            throw new IllegalStateException(
+                "Empty response from S2 list streams, check the basin endpoint"
+            );
+        }
+
+        var output = JacksonMapper.ofJson()
+            .readValue(responseBody, Output.class);
+
+        if (output == null) {
+            throw new IllegalStateException(
+                "Incomplete response from S2 list streams: response body must contain a JSON object"
+            );
+        }
+
+        return output;
     }
 
     URI buildStreamsUri(RunContext runContext) throws Exception {
@@ -125,21 +141,21 @@ public class ListStreams extends AbstractS2Task implements RunnableTask<ListStre
     String buildQueryString(RunContext runContext) throws Exception {
         Map<String, String> query = new LinkedHashMap<>();
 
-        String prefix = renderOptional(runContext, this.prefix);
+        var prefix = renderOptional(runContext, this.prefix);
 
         if (prefix != null) {
             validateQueryValue(prefix, "prefix");
             query.put("prefix", prefix);
         }
 
-        String startAfter = renderOptional(runContext, this.startAfter);
+        var startAfter = renderOptional(runContext, this.startAfter);
 
         if (startAfter != null) {
             validateQueryValue(startAfter, "startAfter");
             query.put("start_after", startAfter);
         }
 
-        Integer limit = runContext.render(this.limit)
+        var limit = runContext.render(this.limit)
             .as(Integer.class)
             .orElse(1000);
 
@@ -187,7 +203,7 @@ public class ListStreams extends AbstractS2Task implements RunnableTask<ListStre
     }
 
     static String buildErrorMessage(int statusCode, String body) {
-        String hint = switch (statusCode) {
+        var hint = switch (statusCode) {
             case 400 ->
                 "Bad request. Check the prefix, startAfter and limit values.";
             case 401 ->

@@ -40,7 +40,7 @@ class DeleteStreamTest {
     }
 
     private Path createInitFile() throws Exception {
-        Path initFile = Files.createTempFile("s2-init-", ".json");
+        var initFile = Files.createTempFile("s2-init-", ".json");
 
         Files.writeString(
             initFile,
@@ -75,7 +75,7 @@ class DeleteStreamTest {
 
     @Test
     void shouldDeleteStream() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -102,7 +102,7 @@ class DeleteStreamTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -203,7 +203,7 @@ class DeleteStreamTest {
 
     @Test
     void shouldRejectStreamNameOver512Bytes() throws Exception {
-        String stream = "a".repeat(513);
+        var stream = "a".repeat(513);
 
         DeleteStream task = DeleteStream.builder()
             .accessToken(Property.ofValue("test-token"))
@@ -227,7 +227,7 @@ class DeleteStreamTest {
 
     @Test
     void shouldAcceptStreamNameWith512Bytes() throws Exception {
-        String stream = "a".repeat(512);
+        var stream = "a".repeat(512);
 
         DeleteStream task = DeleteStream.builder()
             .basin(Property.ofValue("test-basin"))
@@ -305,7 +305,7 @@ class DeleteStreamTest {
 
     @Test
     void shouldIncludeStatusAndResponseBody() {
-        String message = DeleteStream.buildErrorMessage(
+        var message = DeleteStream.buildErrorMessage(
             404,
             "stream_not_found"
         );

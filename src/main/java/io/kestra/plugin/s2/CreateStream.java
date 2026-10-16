@@ -14,6 +14,7 @@ import io.kestra.core.serializers.JacksonMapper;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +50,7 @@ import java.util.Map;
 )
 public class CreateStream extends AbstractS2Task implements RunnableTask<CreateStream.Output> {
 
+    @NotNull
     @Schema(
         title = "Stream",
         description = "Name of the S2 stream to create."
@@ -58,13 +60,13 @@ public class CreateStream extends AbstractS2Task implements RunnableTask<CreateS
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String stream = runContext.render(this.stream)
+        var stream = runContext.render(this.stream)
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
             .orElseThrow(() -> new IllegalArgumentException("'stream' is required"));
 
-        validateStreamName(stream);
+        S2Utils.validateStreamName(stream);
 
         URI uri = buildStreamsUri(runContext);
 
@@ -97,30 +99,34 @@ public class CreateStream extends AbstractS2Task implements RunnableTask<CreateS
             );
         }
 
-        return JacksonMapper.ofJson()
-            .readValue(response.getBody(), Output.class);
+        return toOutput(response.getBody());
+    }
+
+    static Output toOutput(String responseBody) throws Exception {
+        if (responseBody == null || responseBody.isBlank()) {
+            throw new IllegalStateException(
+                "Empty response from S2 create stream, check the basin endpoint"
+            );
+        }
+
+        var output = JacksonMapper.ofJson()
+            .readValue(responseBody, Output.class);
+
+        if (output == null) {
+            throw new IllegalStateException(
+                "Incomplete response from S2 create stream: response body must contain a JSON object"
+            );
+        }
+
+        return output;
     }
 
     URI buildStreamsUri(RunContext runContext) throws Exception {
         return URI.create(basinBaseUrl(runContext) + "/streams");
     }
 
-    private static void validateStreamName(String stream) {
-        if (stream.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException(
-                "'stream' must not contain NUL bytes"
-            );
-        }
-
-        if (stream.getBytes(StandardCharsets.UTF_8).length > 512) {
-            throw new IllegalArgumentException(
-                "'stream' must not exceed 512 bytes"
-            );
-        }
-    }
-
     static String buildErrorMessage(int statusCode, String body) {
-        String hint = switch (statusCode) {
+        var hint = switch (statusCode) {
             case 400 ->
                 "Bad request. Check the stream name.";
             case 401 ->

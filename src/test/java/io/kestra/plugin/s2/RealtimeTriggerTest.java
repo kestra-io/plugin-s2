@@ -53,7 +53,7 @@ class RealtimeTriggerTest {
     private RunContextInitializer runContextInitializer;
 
     private Path createInitFile() throws Exception {
-        Path initFile = Files.createTempFile("s2-init-", ".json");
+        var initFile = Files.createTempFile("s2-init-", ".json");
 
         Files.writeString(
             initFile,
@@ -149,9 +149,9 @@ class RealtimeTriggerTest {
         try (GenericContainer<?> s2 = container(createInitFile())) {
             s2.start();
 
-            String endpoint = endpoint(s2);
-            Flow flow = flow("test-flow-" + System.nanoTime());
-            RunContext runContext = runContextFactory.of(flow, Map.of());
+            var endpoint = endpoint(s2);
+            var flow = flow("test-flow-" + System.nanoTime());
+            var runContext = runContextFactory.of(flow, Map.of());
 
             append(flow, endpoint, "record 0", "record 1");
 
@@ -203,9 +203,9 @@ class RealtimeTriggerTest {
         try (GenericContainer<?> s2 = container(createInitFile())) {
             s2.start();
 
-            String endpoint = endpoint(s2);
-            Flow flow = flow("test-flow-" + System.nanoTime());
-            RunContext runContext = runContextFactory.of(flow, Map.of());
+            var endpoint = endpoint(s2);
+            var flow = flow("test-flow-" + System.nanoTime());
+            var runContext = runContextFactory.of(flow, Map.of());
 
             append(flow, endpoint, "record 0");
 
@@ -240,26 +240,26 @@ class RealtimeTriggerTest {
         try (GenericContainer<?> s2 = container(createInitFile())) {
             s2.start();
 
-            String endpoint = endpoint(s2);
-            Flow flow = flow("test-flow-" + System.nanoTime());
+            var endpoint = endpoint(s2);
+            var flow = flow("test-flow-" + System.nanoTime());
 
             append(flow, endpoint, "record 0");
 
             RealtimeTrigger trigger = trigger(endpoint, "orders", 0L);
             TriggerContext triggerContext = triggerContext(flow, trigger);
 
-            RunContext runContext = runContextInitializer.forScheduler(
+            var runContext = runContextInitializer.forScheduler(
                 (DefaultRunContext) runContextFactory.of(flow, trigger),
                 triggerContext,
                 trigger
             );
 
-            ConditionContext conditionContext = ConditionContext.builder()
+            var conditionContext = ConditionContext.builder()
                 .runContext(runContext)
                 .flow(flow)
                 .build();
 
-            Execution execution = Flux.from(trigger.evaluate(conditionContext, triggerContext))
+            var execution = Flux.from(trigger.evaluate(conditionContext, triggerContext))
                 .subscribeOn(Schedulers.boundedElastic())
                 .blockFirst(Duration.ofSeconds(30));
 
@@ -267,7 +267,7 @@ class RealtimeTriggerTest {
 
             assertThat(execution, is(notNullValue()));
             assertThat(execution.getFlowId(), is(flow.getId()));
-            Map<String, Object> variables = execution.getTrigger().getVariables();
+            var variables = execution.getTrigger().getVariables();
             assertThat(((Number) variables.get("seqNum")).longValue(), is(0L));
             assertThat(variables.get("body"), is(notNullValue()));
         }
@@ -278,9 +278,9 @@ class RealtimeTriggerTest {
         try (GenericContainer<?> s2 = container(createInitFile())) {
             s2.start();
 
-            String endpoint = endpoint(s2);
-            Flow flow = flow("test-flow-" + System.nanoTime());
-            RunContext runContext = runContextFactory.of(flow, Map.of());
+            var endpoint = endpoint(s2);
+            var flow = flow("test-flow-" + System.nanoTime());
+            var runContext = runContextFactory.of(flow, Map.of());
 
             RealtimeTrigger trigger = trigger(endpoint, "missing", 0L);
 
@@ -309,7 +309,7 @@ class RealtimeTriggerTest {
 
     @Test
     void shouldRequireStream() throws Exception {
-        Flow flow = flow("test-flow-validation");
+        var flow = flow("test-flow-validation");
 
         RealtimeTrigger trigger = RealtimeTrigger.builder()
             .id("watch")
@@ -319,15 +319,15 @@ class RealtimeTriggerTest {
             .basinEndpoint(Property.ofValue("http://localhost:1234/v1"))
             .build();
 
-        RunContext runContext = runContextFactory.of(flow, Map.of());
+        var runContext = runContextFactory.of(flow, Map.of());
         TriggerContext triggerContext = triggerContext(flow, trigger);
 
-        ConditionContext conditionContext = ConditionContext.builder()
+        var conditionContext = ConditionContext.builder()
             .runContext(runContext)
             .flow(flow)
             .build();
 
-        IllegalArgumentException exception = assertThrows(
+        var exception = assertThrows(
             IllegalArgumentException.class,
             () -> trigger.evaluate(conditionContext, triggerContext)
         );
@@ -337,7 +337,7 @@ class RealtimeTriggerTest {
 
     @Test
     void shouldRejectMultipleStartSelectors() throws Exception {
-        Flow flow = flow("test-flow-selectors");
+        var flow = flow("test-flow-selectors");
 
         RealtimeTrigger trigger = RealtimeTrigger.builder()
             .id("watch")
@@ -350,15 +350,15 @@ class RealtimeTriggerTest {
             .timestamp(Property.ofValue(2L))
             .build();
 
-        RunContext runContext = runContextFactory.of(flow, Map.of());
+        var runContext = runContextFactory.of(flow, Map.of());
         TriggerContext triggerContext = triggerContext(flow, trigger);
 
-        ConditionContext conditionContext = ConditionContext.builder()
+        var conditionContext = ConditionContext.builder()
             .runContext(runContext)
             .flow(flow)
             .build();
 
-        IllegalArgumentException exception = assertThrows(
+        var exception = assertThrows(
             IllegalArgumentException.class,
             () -> trigger.evaluate(conditionContext, triggerContext)
         );
@@ -374,9 +374,9 @@ class RealtimeTriggerTest {
         try (GenericContainer<?> s2 = container(createInitFile())) {
             s2.start();
 
-            String endpoint = endpoint(s2);
-            Flow flow = flow("test-flow-" + System.nanoTime());
-            RunContext runContext = runContextFactory.of(flow, Map.of());
+            var endpoint = endpoint(s2);
+            var flow = flow("test-flow-" + System.nanoTime());
+            var runContext = runContextFactory.of(flow, Map.of());
 
             append(flow, endpoint, "before subscribe");
 
@@ -511,8 +511,8 @@ class RealtimeTriggerTest {
         try (GenericContainer<?> s2 = container(createInitFile())) {
             s2.start();
 
-            String endpoint = endpoint(s2);
-            Flow flow = flow("test-flow-" + System.nanoTime());
+            var endpoint = endpoint(s2);
+            var flow = flow("test-flow-" + System.nanoTime());
 
             append(flow, endpoint, "record 0", "record 1", "record 2");
 
@@ -529,7 +529,7 @@ class RealtimeTriggerTest {
 
             assertThat(firstRun, hasSize(3));
 
-            RunContext checkContext = runContextFactory.of(flow, Map.of());
+            var checkContext = runContextFactory.of(flow, Map.of());
             String key = first.buildWatermarkKey(checkContext, "orders");
 
             long deadline = System.currentTimeMillis() + 10_000;

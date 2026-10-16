@@ -41,7 +41,7 @@ class ListStreamsTest {
     }
 
     private Path createInitFile() throws Exception {
-        Path initFile = Files.createTempFile("s2-init-", ".json");
+        var initFile = Files.createTempFile("s2-init-", ".json");
 
         Files.writeString(
             initFile,
@@ -88,7 +88,7 @@ class ListStreamsTest {
 
     @Test
     void shouldListStreams() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -115,7 +115,7 @@ class ListStreamsTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -155,7 +155,7 @@ class ListStreamsTest {
 
     @Test
     void shouldFilterStreamsByPrefix() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -182,7 +182,7 @@ class ListStreamsTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -211,7 +211,7 @@ class ListStreamsTest {
 
     @Test
     void shouldUseStartAfter() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -238,7 +238,7 @@ class ListStreamsTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -270,7 +270,7 @@ class ListStreamsTest {
 
     @Test
     void shouldRespectLimit() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -297,7 +297,7 @@ class ListStreamsTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -509,5 +509,43 @@ class ListStreamsTest {
             ListStreams.buildErrorMessage(401, "unauthorized"),
             containsString("accessToken")
         );
+    }
+
+    @Test
+    void shouldRejectEmptyResponseBody() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> ListStreams.toOutput("")
+        );
+
+        assertThat(exception.getMessage(), containsString("Empty response"));
+    }
+
+    @Test
+    void shouldRejectNullResponseBody() {
+        assertThrows(
+            IllegalStateException.class,
+            () -> ListStreams.toOutput(null)
+        );
+    }
+
+    @Test
+    void shouldRejectNullJsonResponse() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> ListStreams.toOutput("null")
+        );
+
+        assertThat(exception.getMessage(), containsString("Incomplete response"));
+    }
+
+    @Test
+    void shouldParseEmptyStreamsResponse() throws Exception {
+        ListStreams.Output output = ListStreams.toOutput(
+            "{\"streams\":[],\"has_more\":false}"
+        );
+
+        assertThat(output.getStreams().isEmpty(), is(true));
+        assertThat(output.isHasMore(), is(false));
     }
 }

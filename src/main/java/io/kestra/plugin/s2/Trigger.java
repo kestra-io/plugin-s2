@@ -13,11 +13,16 @@ import io.kestra.core.models.triggers.TriggerOutput;
 import io.kestra.core.models.triggers.TriggerService;
 import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.stream.Stream;
+import java.util.List;
 
 @SuperBuilder
 @ToString
@@ -28,7 +33,7 @@ import java.util.Optional;
     title = "Start a Flow when new S2 records arrive",
     description = """
         Polls an S2 stream at a fixed interval and starts one Execution with the new records.
-        The last delivered sequence number is saved in the namespace KV store, so records are not delivered twice.
+        The last processed sequence position is saved in the namespace KV store to prevent records from being delivered twice.
         Use the [RealtimeTrigger](https://kestra.io/plugins/plugin-s2/triggers/io.kestra.plugin.s2.realtimetrigger) to start one Execution per record as soon as it arrives.
         """
 )
@@ -58,7 +63,7 @@ import java.util.Optional;
         )
     }
 )
-public class Trigger extends AbstractS2Trigger implements PollingTriggerInterface, TriggerOutput {
+public class Trigger extends AbstractS2Trigger implements PollingTriggerInterface, TriggerOutput<Trigger.Output> {
 
     @Schema(
         title = "Interval",
@@ -70,12 +75,13 @@ public class Trigger extends AbstractS2Trigger implements PollingTriggerInterfac
 
     @Schema(
         title = "Maximum records",
-        description = "Maximum number of records to process in one polling cycle."
+        description = "Maximum number of records to process in one polling cycle, between 1 and 1000."
     )
     @PluginProperty(group = "main")
     @Builder.Default
-    private Property<Integer> maxRecords = Property.ofValue(100);
+    private Property<@Min(1) @Max(1000) Integer> maxRecords = Property.ofValue(100);
 
+    @NotNull
     @Schema(
         title = "Stream",
         description = "Name of the S2 stream to poll."
@@ -83,13 +89,34 @@ public class Trigger extends AbstractS2Trigger implements PollingTriggerInterfac
     @PluginProperty(group = "main")
     private Property<String> stream;
 
+    @Schema(
+        title = "Initial sequence number",
+        description = "Initial position: start from the first record whose sequence number is greater than or equal to this value. Only used until the trigger has delivered a record."
+    )
+    @PluginProperty(group = "main")
+    private Property<Long> seqNum;
+
+    @Schema(
+        title = "Initial timestamp",
+        description = "Initial position: start from the first record whose timestamp is greater than or equal to this value. Only used until the trigger has delivered a record."
+    )
+    @PluginProperty(group = "main")
+    private Property<Long> timestamp;
+
+    @Schema(
+        title = "Initial tail offset",
+        description = "Initial position: start this many records before the tail of the stream. Only used until the trigger has delivered a record."
+    )
+    @PluginProperty(group = "main")
+    private Property<Long> tailOffset;
+
     @Override
     public Duration getInterval() {
         return interval;
     }
 
     private int resolveMaxRecords(RunContext runContext) throws Exception {
-        int value = runContext.render(this.maxRecords)
+        var value = runContext.render(this.maxRecords)
             .as(Integer.class)
             .orElse(100);
 
@@ -105,21 +132,48 @@ public class Trigger extends AbstractS2Trigger implements PollingTriggerInterfac
     private Read.Output readRecords(
         RunContext runContext,
         String stream,
-        long startSeqNum
+        Property<Long> seqNum,
+        Property<Long> timestamp,
+        Property<Long> tailOffset,
+        int maxRecords
     ) throws Exception {
-        Read readTask = Read.builder()
+        var readTask = Read.builder()
             .id(this.id)
             .accessToken(this.getAccessToken())
             .basin(this.getBasin())
-            .accountEndpoint(this.getAccountEndpoint())
             .basinEndpoint(this.getBasinEndpoint())
             .stream(Property.ofValue(stream))
-            .seqNum(Property.ofValue(startSeqNum))
+            .seqNum(seqNum)
+            .timestamp(timestamp)
+            .tailOffset(tailOffset)
+            .maxRecords(Property.ofValue(maxRecords))
             .fetchType(Property.ofValue(FetchType.FETCH))
-            .maxRecords(Property.ofValue(resolveMaxRecords(runContext)))
             .build();
 
         return readTask.run(runContext);
+    }
+
+    private void startAtTail(
+        RunContext runContext,
+        String stream,
+        String key
+    ) throws Exception {
+        var output = readRecords(
+            runContext,
+            stream,
+            null,
+            null,
+            Property.ofValue(0L),
+            1
+        );
+
+        if (output.getTail() == null) {
+            throw new IllegalStateException(
+                "S2 did not return a tail sequence number for stream: " + stream
+            );
+        }
+
+        writeLastSeen(runContext, key, output.getTail() - 1);
     }
 
     @Override
@@ -128,40 +182,77 @@ public class Trigger extends AbstractS2Trigger implements PollingTriggerInterfac
         TriggerContext context
     ) throws Exception {
 
-        RunContext runContext = conditionContext.getRunContext();
+        var runContext = conditionContext.getRunContext();
 
-        String stream = runContext.render(this.stream)
+        var stream = runContext.render(this.stream)
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
             .orElseThrow(() -> new IllegalArgumentException("'stream' is required"));
 
+        int maxRecords = resolveMaxRecords(runContext);
+
+        Optional<Long> initialSeqNum = runContext.render(this.seqNum).as(Long.class);
+        Optional<Long> initialTimestamp = runContext.render(this.timestamp).as(Long.class);
+        Optional<Long> initialTailOffset = runContext.render(this.tailOffset).as(Long.class);
+
+        long selectors = Stream.of(initialSeqNum, initialTimestamp, initialTailOffset)
+            .filter(Optional::isPresent)
+            .count();
+
+        if (selectors > 1) {
+            throw new IllegalArgumentException(
+                "Only one of 'seqNum', 'timestamp' or 'tailOffset' can be set"
+            );
+        }
+
         String key = buildWatermarkKey(runContext, stream);
 
-        long lastSeen = readLastSeen(runContext, key);
+        Read.Output output;
 
-        long startSeqNum = lastSeen + 1;
-
-        Read.Output output = readRecords(
-            runContext,
-            stream,
-            startSeqNum
-        );
+        if (hasLastSeen(runContext, key)) {
+            long lastSeen = readLastSeen(runContext, key);
+            output = readRecords(
+                runContext,
+                stream,
+                Property.ofValue(lastSeen + 1),
+                null,
+                null,
+                maxRecords
+            );
+        } else if (selectors == 1) {
+            output = readRecords(
+                runContext,
+                stream,
+                this.seqNum,
+                this.timestamp,
+                this.tailOffset,
+                maxRecords
+            );
+        } else {
+            startAtTail(runContext, stream, key);
+            return Optional.empty();
+        }
 
         if (output.getRecords().isEmpty()) {
             return Optional.empty();
         }
 
-        Read.Record lastRecord = output.getRecords()
-            .get(output.getRecords().size() - 1);
+        var lastRecord = output.getRecords().getLast();
 
         long lastSequence = lastRecord.getSeqNum();
 
-        Execution execution = TriggerService.generateExecution(
+        Output triggerOutput = Output.builder()
+            .records(output.getRecords())
+            .size(output.getSize())
+            .tail(output.getTail())
+            .build();
+
+        var execution = TriggerService.generateExecution(
             this,
             conditionContext,
             context,
-            output
+            triggerOutput
         );
 
         writeLastSeen(runContext, key, lastSequence);
@@ -169,4 +260,25 @@ public class Trigger extends AbstractS2Trigger implements PollingTriggerInterfac
         return Optional.of(execution);
     }
 
+    @Builder
+    @Getter
+    public static class Output implements io.kestra.core.models.tasks.Output {
+        @Schema(
+            title = "Records",
+            description = "The records returned during this polling cycle."
+        )
+        private final List<Read.Record> records;
+
+        @Schema(
+            title = "Size",
+            description = "Number of records returned."
+        )
+        private final Integer size;
+
+        @Schema(
+            title = "Tail",
+            description = "Sequence number that will be assigned to the next record on the stream."
+        )
+        private final Long tail;
+    }
 }

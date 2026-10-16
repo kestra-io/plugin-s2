@@ -18,6 +18,7 @@ import io.kestra.core.models.triggers.TriggerService;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -30,13 +31,12 @@ import org.slf4j.Logger;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -84,6 +84,10 @@ import java.util.stream.Stream;
 public class RealtimeTrigger extends AbstractS2Trigger
     implements RealtimeTriggerInterface, TriggerOutput<RealtimeTrigger.Output> {
 
+    private static final Logger LOGGER =
+        org.slf4j.LoggerFactory.getLogger(RealtimeTrigger.class);
+
+    @NotNull
     @Schema(
         title = "Stream",
         description = "Name of the S2 stream to listen to."
@@ -114,21 +118,27 @@ public class RealtimeTrigger extends AbstractS2Trigger
 
     @Builder.Default
     @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     private final AtomicBoolean isActive = new AtomicBoolean(true);
 
     @Builder.Default
     @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     private final CountDownLatch waitForTermination = new CountDownLatch(1);
 
     @Builder.Default
     @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     private final AtomicReference<HttpClient> client = new AtomicReference<>();
 
     @Override
     public Publisher<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
-        RunContext runContext = conditionContext.getRunContext();
+        var runContext = conditionContext.getRunContext();
 
-        String streamName = runContext.render(this.stream)
+        var streamName = runContext.render(this.stream)
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
@@ -137,7 +147,7 @@ public class RealtimeTrigger extends AbstractS2Trigger
         String watermarkKey = buildWatermarkKey(runContext, streamName);
         long lastSeen = readLastSeen(runContext, watermarkKey);
 
-        HttpRequest request = createSseRequest(runContext, streamName, lastSeen);
+        var request = createSseRequest(runContext, streamName, lastSeen);
 
         return Flux.from(publisher(runContext, request, watermarkKey))
             .map(record -> TriggerService.generateRealtimeExecution(
@@ -173,7 +183,7 @@ public class RealtimeTrigger extends AbstractS2Trigger
 
                     logger.debug("Starting S2 realtime trigger triggerId={}", this.id);
 
-                    HttpResponse<Void> response = httpClient.sseRequest(
+                    var response = httpClient.sseRequest(
                         request,
                         String.class,
                         event -> {
@@ -224,7 +234,7 @@ public class RealtimeTrigger extends AbstractS2Trigger
 
         if ("batch".equals(event.name())) {
             try {
-                S2Batch batch = JacksonMapper.ofJson().readValue(data, S2Batch.class);
+                var batch = JacksonMapper.ofJson().readValue(data, S2Batch.class);
                 Long lastSeqNum = null;
 
                 if (batch.getRecords() != null) {
@@ -264,22 +274,8 @@ public class RealtimeTrigger extends AbstractS2Trigger
     }
 
     HttpRequest createSseRequest(RunContext runContext, String streamName, long lastSeen) throws Exception {
-        String basin = runContext.render(this.getBasin())
-            .as(String.class)
-            .map(String::trim)
-            .filter(value -> !value.isBlank())
-            .orElseThrow(() -> new IllegalArgumentException("S2 'basin' is required"));
 
-        String endpoint = runContext.render(this.getBasinEndpoint())
-            .as(String.class)
-            .map(String::trim)
-            .filter(value -> !value.isBlank())
-            .orElseThrow(() -> new IllegalArgumentException("S2 'basinEndpoint' is required"));
-
-        endpoint = endpoint.replace("{basin}", basin);
-        if (endpoint.endsWith("/")) {
-            endpoint = endpoint.substring(0, endpoint.length() - 1);
-        }
+        String endpoint = S2Utils.basinBaseUrl(runContext, this.getBasin(), this.getBasinEndpoint());
 
         Optional<Long> startSeqNum = runContext.render(this.seqNum).as(Long.class);
         Optional<Long> startTimestamp = runContext.render(this.timestamp).as(Long.class);
@@ -302,7 +298,7 @@ public class RealtimeTrigger extends AbstractS2Trigger
             startTailOffset.ifPresent(value -> params.put("tail_offset", value));
         }
 
-        String encodedStream = URLEncoder.encode(streamName, StandardCharsets.UTF_8).replace("+", "%20");
+        String encodedStream = S2Utils.encodeStreamName(streamName);
 
         String url = endpoint + "/streams/" + encodedStream + "/records";
 
@@ -352,11 +348,17 @@ public class RealtimeTrigger extends AbstractS2Trigger
 
         if (wait && started) {
             try {
-                this.waitForTermination.await();
+                if (!this.waitForTermination.await(5, TimeUnit.SECONDS)) {
+                    LOGGER.warn(
+                        "S2 realtime trigger triggerId={} did not terminate within 5 seconds",
+                        this.id
+                    );
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
+
     }
 
     @Getter

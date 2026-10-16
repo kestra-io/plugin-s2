@@ -11,10 +11,9 @@ import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +25,7 @@ import java.util.Map;
 @NoArgsConstructor
 public abstract class AbstractS2Task extends Task {
 
+    @NotNull
     @Schema(
         title = "S2 access token",
         description = "Access token used to authenticate with S2"
@@ -34,21 +34,13 @@ public abstract class AbstractS2Task extends Task {
     @ToString.Exclude
     private Property<String> accessToken;
 
+    @NotNull
     @Schema(
         title = "S2 basin",
         description = "S2 basin containing the streams"
     )
     @PluginProperty(group = "connection")
     private Property<String> basin;
-
-    @Schema(
-        title = "Account endpoint",
-        description = "S2 account API endpoint"
-    )
-    @PluginProperty(group = "connection")
-    @Builder.Default
-    private Property<String> accountEndpoint =
-        Property.ofValue("https://a.s2.dev/v1");
 
     @Schema(
         title = "Basin endpoint",
@@ -66,47 +58,14 @@ public abstract class AbstractS2Task extends Task {
     }
 
     protected String basinBaseUrl(RunContext runContext) throws Exception {
-        String basin = runContext.render(this.getBasin())
-            .as(String.class)
-            .map(String::trim)
-            .filter(value -> !value.isBlank())
-            .orElseThrow(() ->
-                new IllegalArgumentException("S2 'basin' is required")
-            );
-
-        String endpoint = runContext.render(this.getBasinEndpoint())
-            .as(String.class)
-            .map(String::trim)
-            .filter(value -> !value.isBlank())
-            .orElseThrow(() ->
-                new IllegalArgumentException("S2 'basinEndpoint' is required")
-            );
-
-        if (endpoint.contains("{basin}")) {
-            endpoint = endpoint.replace("{basin}", basin);
-        }
-
-        URI baseUri = URI.create(endpoint);
-
-        String basePath = baseUri.getPath();
-
-        if (basePath == null) {
-            basePath = "";
-        }
-
-        if (basePath.endsWith("/")) {
-            basePath = basePath.substring(0, basePath.length() - 1);
-        }
-
-        return baseUri.getScheme() + "://" + baseUri.getAuthority() + basePath;
+       return S2Utils.basinBaseUrl(runContext, this.getBasin(), this.getBasinEndpoint());
     }
 
     protected URI buildRecordsUri(
         RunContext runContext,
         String stream
     ) throws Exception {
-        String encodedStream = URLEncoder.encode(stream, StandardCharsets.UTF_8)
-            .replace("+", "%20");
+        var encodedStream = S2Utils.encodeStreamName(stream);
 
         return URI.create(
             basinBaseUrl(runContext) + "/streams/" + encodedStream + "/records"
@@ -121,13 +80,7 @@ public abstract class AbstractS2Task extends Task {
     }
 
     protected String getAccessToken(RunContext runContext) throws Exception {
-        return runContext.render(this.accessToken)
-            .as(String.class)
-            .map(String::trim)
-            .filter(token -> !token.isBlank())
-            .orElseThrow(() ->
-                new IllegalArgumentException("S2 'accessToken' is required")
-            );
+        return S2Utils.getAccessToken(runContext, this.accessToken);
     }
 
     protected HttpRequest createRequest(
@@ -144,7 +97,7 @@ public abstract class AbstractS2Task extends Task {
             List.of("Bearer " + getAccessToken(runContext))
         );
 
-        String basinEndpoint = runContext.render(this.getBasinEndpoint())
+        var basinEndpoint = runContext.render(this.getBasinEndpoint())
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
@@ -153,7 +106,7 @@ public abstract class AbstractS2Task extends Task {
             );
 
         if (!basinEndpoint.contains("{basin}")) {
-            String basin = runContext.render(this.getBasin())
+            var basin = runContext.render(this.getBasin())
                 .as(String.class)
                 .map(String::trim)
                 .filter(value -> !value.isBlank())

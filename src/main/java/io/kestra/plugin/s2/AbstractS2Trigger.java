@@ -15,6 +15,7 @@ import io.kestra.core.storages.kv.KVValueAndMetadata;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
 import java.time.Duration;
@@ -30,6 +31,7 @@ import java.util.Optional;
 @NoArgsConstructor
 public abstract class AbstractS2Trigger extends AbstractTrigger {
 
+    @NotNull
     @Schema(
         title = "S2 access token",
         description = "Access token used to authenticate with S2"
@@ -38,21 +40,13 @@ public abstract class AbstractS2Trigger extends AbstractTrigger {
     @ToString.Exclude
     private Property<String> accessToken;
 
+    @NotNull
     @Schema(
         title = "S2 basin",
         description = "S2 basin containing the stream"
     )
     @PluginProperty(group = "connection")
     private Property<String> basin;
-
-    @Schema(
-        title = "Account endpoint",
-        description = "S2 account API endpoint"
-    )
-    @PluginProperty(group = "connection")
-    @Builder.Default
-    private Property<String> accountEndpoint =
-        Property.ofValue("https://a.s2.dev/v1");
 
     @Schema(
         title = "Basin endpoint",
@@ -71,13 +65,7 @@ public abstract class AbstractS2Trigger extends AbstractTrigger {
     }
 
     protected String getAccessToken(RunContext runContext) throws Exception {
-        return runContext.render(this.accessToken)
-            .as(String.class)
-            .map(String::trim)
-            .filter(token -> !token.isBlank())
-            .orElseThrow(() ->
-                new IllegalArgumentException("S2 'accessToken' is required")
-            );
+        return S2Utils.getAccessToken(runContext, this.accessToken);
     }
 
     protected HttpRequest createRequest(
@@ -94,7 +82,7 @@ public abstract class AbstractS2Trigger extends AbstractTrigger {
             List.of("Bearer " + getAccessToken(runContext))
         );
 
-        String basinEndpoint = runContext.render(this.getBasinEndpoint())
+        var basinEndpoint = runContext.render(this.getBasinEndpoint())
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
@@ -102,15 +90,17 @@ public abstract class AbstractS2Trigger extends AbstractTrigger {
                 new IllegalArgumentException("S2 'basinEndpoint' is required")
             );
 
-        if (!basinEndpoint.contains("{basin}")) {
-            String basin = runContext.render(this.getBasin())
-                .as(String.class)
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .orElseThrow(() ->
-                    new IllegalArgumentException("S2 'basin' is required")
-                );
+        var basin = runContext.render(this.getBasin())
+            .as(String.class)
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .orElseThrow(() ->
+                new IllegalArgumentException("S2 'basin' is required")
+            );
 
+        basin = S2Utils.validateBasin(basin);
+
+        if (!basinEndpoint.contains("{basin}")) {
             headers.put("S2-Basin", List.of(basin));
         }
 
@@ -122,16 +112,7 @@ public abstract class AbstractS2Trigger extends AbstractTrigger {
         );
     }
 
-    protected <T> HttpResponse<T> execute(
-        RunContext runContext,
-        HttpRequest request,
-        Class<T> responseType
-    ) throws Exception {
-        try (HttpClient httpClient = createHttpClient(runContext)) {
-            return httpClient.request(request, responseType);
-        }
-    }
-
+    @SuppressWarnings("RedundantExplicitVariableType")
     protected String buildWatermarkKey(
         RunContext runContext,
         String stream
@@ -145,6 +126,7 @@ public abstract class AbstractS2Trigger extends AbstractTrigger {
             + stream.length() + "_" + stream;
     }
 
+    @SuppressWarnings("RedundantExplicitVariableType")
     protected long readLastSeen(
         RunContext runContext,
         String key
@@ -162,6 +144,19 @@ public abstract class AbstractS2Trigger extends AbstractTrigger {
         return Long.parseLong(value.get().value().toString());
     }
 
+    @SuppressWarnings("RedundantExplicitVariableType")
+    protected boolean hasLastSeen(
+        RunContext runContext,
+        String key
+    ) throws Exception {
+        KVStore kv = runContext.namespaceKv(
+            runContext.flowInfo().namespace()
+        );
+
+        return kv.getValue(key).isPresent();
+    }
+
+    @SuppressWarnings("RedundantExplicitVariableType")
     protected void writeLastSeen(
         RunContext runContext,
         String key,

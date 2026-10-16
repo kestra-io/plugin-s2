@@ -7,7 +7,6 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.serializers.FileSerde;
-import io.kestra.core.utils.TestsUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.BindMode;
@@ -48,7 +47,7 @@ class AppendTest {
     }
 
     private Path createInitFile() throws Exception {
-        Path initFile = Files.createTempFile("s2-init-", ".json");
+        var initFile = Files.createTempFile("s2-init-", ".json");
 
         Files.writeString(
             initFile,
@@ -101,7 +100,7 @@ class AppendTest {
         ) {
             s2.start();
 
-            String endpoint = "http://localhost:" + s2.getMappedPort(80) + "/v1";
+            var endpoint = "http://localhost:" + s2.getMappedPort(80) + "/v1";
 
             Append task = Append.builder()
                 .accessToken(Property.ofValue("test-token"))
@@ -353,16 +352,11 @@ class AppendTest {
         ) {
             s2.start();
 
-            String endpoint = "http://localhost:" + s2.getMappedPort(80) + "/v1";
+            var endpoint = "http://localhost:" + s2.getMappedPort(80) + "/v1";
 
-            Append seed = Append.builder()
-                .id("append")
-                .type(Append.class.getName())
-                .build();
+            RunContext runContext = createRunContext();
 
-            RunContext runContext = TestsUtils.mockRunContext(runContextFactory, seed, Map.of());
-
-            File file = runContext.workingDir().createTempFile(".ion").toFile();
+            var file = runContext.workingDir().createTempFile(".ion").toFile();
 
             try (OutputStream outputStream = new FileOutputStream(file)) {
                 FileSerde.write(outputStream, Append.Record.builder().body("from file 1").build());
@@ -385,5 +379,54 @@ class AppendTest {
             assertThat(output.getEnd(), is(2L));
             assertThat(output.getTail(), is(2L));
         }
+    }
+
+    @Test
+    void shouldRejectEmptyResponseBody() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> Append.toOutput("")
+        );
+
+        assertThat(exception.getMessage(), containsString("Empty response"));
+    }
+
+    @Test
+    void shouldRejectNullResponseBody() {
+        assertThrows(
+            IllegalStateException.class,
+            () -> Append.toOutput(null)
+        );
+    }
+
+    @Test
+    void shouldRejectIncompleteResponse() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> Append.toOutput("{\"start\":{\"seq_num\":0}}")
+        );
+
+        assertThat(exception.getMessage(), containsString("Incomplete response"));
+    }
+
+    @Test
+    void shouldRejectPositionWithoutSequenceNumber() {
+        assertThrows(
+            IllegalStateException.class,
+            () -> Append.toOutput(
+                "{\"start\":{\"timestamp\":1},\"end\":{\"seq_num\":1},\"tail\":{\"seq_num\":1}}"
+            )
+        );
+    }
+
+    @Test
+    void shouldParseCompleteResponse() throws Exception {
+        Append.Output output = Append.toOutput(
+            "{\"start\":{\"seq_num\":0},\"end\":{\"seq_num\":2},\"tail\":{\"seq_num\":2}}"
+        );
+
+        assertThat(output.getStart(), is(0L));
+        assertThat(output.getEnd(), is(2L));
+        assertThat(output.getTail(), is(2L));
     }
 }

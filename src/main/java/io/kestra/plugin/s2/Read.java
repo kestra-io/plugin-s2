@@ -3,7 +3,6 @@ package io.kestra.plugin.s2;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.kestra.core.http.client.configurations.HttpConfiguration;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
@@ -24,6 +23,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+import jakarta.validation.constraints.NotNull;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -67,6 +67,7 @@ import java.util.stream.Stream;
     }
 )
 public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
+    @NotNull
     @Schema(
         title = "Stream",
         description = "Name of the S2 stream to read records from."
@@ -108,10 +109,8 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
         description = "Maximum number of records to read, between 1 and 1000."
     )
     @PluginProperty(group = "main")
-    @Min(1)
-    @Max(1000)
     @Builder.Default
-    private Property<Integer> maxRecords = Property.ofValue(100);
+    private Property<@Min(1) @Max(1000) Integer> maxRecords = Property.ofValue(100);
 
     String buildQueryString(RunContext runContext) throws Exception {
         Map<String, Object> params = new LinkedHashMap<>();
@@ -205,7 +204,7 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String stream = runContext.render(this.stream)
+        var stream = runContext.render(this.stream)
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
@@ -213,11 +212,11 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
                 new IllegalArgumentException("S2 'stream' is required")
             );
 
-        URI uri = buildRecordsUri(runContext, stream);
+        var uri = buildRecordsUri(runContext, stream);
 
-        String query = buildQueryString(runContext);
+        var query = buildQueryString(runContext);
 
-        HttpRequest request = createRequest(
+        var request = createRequest(
             runContext,
             "GET",
             uri + "?" + query,
@@ -225,7 +224,7 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
             Map.of()
         );
 
-        HttpResponse<String> response = execute(
+        var response = execute(
             runContext,
             request,
             String.class
@@ -242,8 +241,7 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
             );
         }
 
-        ReadBatch batch = JacksonMapper.ofJson()
-            .readValue(response.getBody(), ReadBatch.class);
+        var batch = parseResponse(response.getBody());
 
         List<Record> records = batch.getRecords() == null
             ? List.of()
@@ -267,7 +265,7 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
                 .build();
 
             case FETCH_ONE -> Output.builder()
-                .record(records.isEmpty() ? null : records.get(0))
+                .record(records.isEmpty() ? null : records.getFirst())
                 .size(records.isEmpty() ? 0 : 1)
                 .tail(tail)
                 .build();
@@ -282,6 +280,25 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
                 "Unsupported fetch type: " + type
             );
         };
+    }
+
+    static ReadBatch parseResponse(String responseBody) throws Exception {
+        if (responseBody == null || responseBody.isBlank()) {
+            throw new IllegalStateException(
+                "Empty response from S2 read, check the basin endpoint"
+            );
+        }
+
+        var batch = JacksonMapper.ofJson()
+            .readValue(responseBody, ReadBatch.class);
+
+        if (batch == null) {
+            throw new IllegalStateException(
+                "Incomplete response from S2 read: response body must contain a JSON object"
+            );
+        }
+
+        return batch;
     }
 
     @Getter
@@ -318,7 +335,7 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
     @Getter
     @NoArgsConstructor
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private static class ReadBatch {
+    static class ReadBatch {
 
         private List<Record> records;
 
@@ -328,7 +345,7 @@ public class Read extends AbstractS2Task implements RunnableTask<Read.Output> {
     @Getter
     @NoArgsConstructor
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private static class StreamPosition {
+    static class StreamPosition {
 
         @JsonProperty("seq_num")
         private Long seqNum;

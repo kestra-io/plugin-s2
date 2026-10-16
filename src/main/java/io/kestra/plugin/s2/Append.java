@@ -21,6 +21,7 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 import reactor.core.publisher.Flux;
+import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
 import java.util.List;
@@ -58,6 +59,7 @@ import java.util.Map;
 )
 public class Append extends AbstractS2Task implements RunnableTask<Append.Output> {
 
+    @NotNull
     @Schema(
         title = "Stream",
         description = "Name of the S2 stream to append records to."
@@ -65,6 +67,7 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
     @PluginProperty(group = "main")
     private Property<String> stream;
 
+    @NotNull
     @Schema(
         title = "Records",
         description = "Records to append to the S2 stream."
@@ -74,7 +77,7 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String stream = runContext.render(this.stream)
+        var stream = runContext.render(this.stream)
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
@@ -90,7 +93,7 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
             map -> JacksonMapper.ofJson().convertValue(map, Record.class)
         );
 
-        List<Record> recordList = records.take(1001).collectList().block();
+        var recordList = records.take(1001).collectList().block();
 
         if (recordList == null || recordList.isEmpty()) {
             throw new IllegalArgumentException("'records' must contain at least one record");
@@ -131,8 +134,26 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
             );
         }
 
+        return toOutput(response.getBody());
+    }
+
+    static Output toOutput(String responseBody) throws Exception {
+        if (responseBody == null || responseBody.isBlank()) {
+            throw new IllegalStateException(
+                "Empty response from S2 append, check the basin endpoint"
+            );
+        }
+
         AppendAck ack = JacksonMapper.ofJson()
-            .readValue(response.getBody(), AppendAck.class);
+            .readValue(responseBody, AppendAck.class);
+
+        if (ack.getStart() == null || ack.getStart().getSeqNum() == null
+            || ack.getEnd() == null || ack.getEnd().getSeqNum() == null
+            || ack.getTail() == null || ack.getTail().getSeqNum() == null) {
+            throw new IllegalStateException(
+                "Incomplete response from S2 append: start, end, and tail sequence numbers are required"
+            );
+        }
 
         return Output.builder()
             .start(ack.getStart().getSeqNum())
@@ -219,7 +240,7 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
     }
 
     static String buildErrorMessage(int statusCode, String body) {
-        String hint = switch (statusCode) {
+        var hint = switch (statusCode) {
             case 400 ->
                 "Bad request. Check the stream name and record fields.";
             case 401 ->

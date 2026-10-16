@@ -12,10 +12,9 @@ import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 @SuperBuilder
@@ -48,6 +47,7 @@ import java.util.Map;
 )
 public class DeleteStream extends AbstractS2Task implements RunnableTask<VoidOutput> {
 
+    @NotNull
     @Schema(
         title = "Stream",
         description = "Name of the S2 stream to delete."
@@ -57,7 +57,7 @@ public class DeleteStream extends AbstractS2Task implements RunnableTask<VoidOut
 
     @Override
     public VoidOutput run(RunContext runContext) throws Exception {
-        String stream = runContext.render(this.stream)
+        var stream = runContext.render(this.stream)
             .as(String.class)
             .map(String::trim)
             .filter(value -> !value.isBlank())
@@ -65,7 +65,7 @@ public class DeleteStream extends AbstractS2Task implements RunnableTask<VoidOut
                 () -> new IllegalArgumentException("'stream' is required")
             );
 
-        validateStreamName(stream);
+        S2Utils.validateStreamName(stream);
 
         URI uri = buildStreamUri(runContext, stream);
 
@@ -101,33 +101,18 @@ public class DeleteStream extends AbstractS2Task implements RunnableTask<VoidOut
         RunContext runContext,
         String stream
     ) throws Exception {
-        String encodedStream = URLEncoder.encode(stream, StandardCharsets.UTF_8)
-            .replace("+", "%20");
+        var encodedStream = S2Utils.encodeStreamName(stream);
 
         return URI.create(
             basinBaseUrl(runContext) + "/streams/" + encodedStream
         );
     }
 
-    private static void validateStreamName(String stream) {
-        if (stream.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException(
-                "'stream' must not contain NUL bytes"
-            );
-        }
-
-        if (stream.getBytes(StandardCharsets.UTF_8).length > 512) {
-            throw new IllegalArgumentException(
-                "'stream' must not exceed 512 bytes"
-            );
-        }
-    }
-
     static String buildErrorMessage(
         int statusCode,
         String body
     ) {
-        String hint = switch (statusCode) {
+        var hint = switch (statusCode) {
             case 400 ->
                 "Bad request. Check the stream name.";
             case 401 ->

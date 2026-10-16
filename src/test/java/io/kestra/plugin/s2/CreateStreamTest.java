@@ -41,7 +41,7 @@ class CreateStreamTest {
     }
 
     private Path createInitFile() throws Exception {
-        Path initFile = Files.createTempFile("s2-init-", ".json");
+        var initFile = Files.createTempFile("s2-init-", ".json");
 
         Files.writeString(
             initFile,
@@ -72,7 +72,7 @@ class CreateStreamTest {
 
     @Test
     void shouldCreateStream() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -90,7 +90,7 @@ class CreateStreamTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -198,7 +198,7 @@ class CreateStreamTest {
 
     @Test
     void shouldRejectStreamNameOver512Bytes() throws Exception {
-        String stream = "a".repeat(513);
+        var stream = "a".repeat(513);
 
         CreateStream task = CreateStream.builder()
             .accessToken(Property.ofValue("test-token"))
@@ -287,7 +287,7 @@ class CreateStreamTest {
 
     @Test
     void shouldFailWhenStreamAlreadyExists() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -305,7 +305,7 @@ class CreateStreamTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -331,5 +331,43 @@ class CreateStreamTest {
                 containsString("HTTP status 409")
             );
         }
+    }
+
+    @Test
+    void shouldRejectEmptyResponseBody() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> CreateStream.toOutput("")
+        );
+
+        assertThat(exception.getMessage(), containsString("Empty response"));
+    }
+
+    @Test
+    void shouldRejectNullResponseBody() {
+        assertThrows(
+            IllegalStateException.class,
+            () -> CreateStream.toOutput(null)
+        );
+    }
+
+    @Test
+    void shouldRejectNullJsonResponse() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> CreateStream.toOutput("null")
+        );
+
+        assertThat(exception.getMessage(), containsString("Incomplete response"));
+    }
+
+    @Test
+    void shouldParseValidResponse() throws Exception {
+        CreateStream.Output output = CreateStream.toOutput(
+            "{\"name\":\"orders\",\"created_at\":\"2026-10-15T10:00:00Z\"}"
+        );
+
+        assertThat(output.getName(), is("orders"));
+        assertThat(output.getCreatedAt(), is("2026-10-15T10:00:00Z"));
     }
 }

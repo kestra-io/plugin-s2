@@ -43,7 +43,7 @@ class ReadTest {
     }
 
     private Path createInitFile() throws Exception {
-        Path initFile = Files.createTempFile("s2-init-", ".json");
+        var initFile = Files.createTempFile("s2-init-", ".json");
 
         Files.writeString(
             initFile,
@@ -77,7 +77,7 @@ class ReadTest {
 
     @Test
     void shouldReadRecords() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -95,7 +95,7 @@ class ReadTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
@@ -112,7 +112,7 @@ class ReadTest {
                 )))
                 .build();
 
-            RunContext runContext = createRunContext();
+            var runContext = createRunContext();
 
             append.run(runContext);
 
@@ -149,7 +149,7 @@ class ReadTest {
 
     @Test
     void shouldReadOneRecord() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -167,12 +167,12 @@ class ReadTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
 
-            RunContext runContext = createRunContext();
+            var runContext = createRunContext();
 
             Append append = Append.builder()
                 .accessToken(Property.ofValue("test-token"))
@@ -209,7 +209,7 @@ class ReadTest {
 
     @Test
     void shouldStoreRecords() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -227,12 +227,12 @@ class ReadTest {
         ) {
             s2.start();
 
-            String endpoint =
+            var endpoint =
                 "http://localhost:"
                     + s2.getMappedPort(80)
                     + "/v1";
 
-            RunContext runContext = createRunContext();
+            var runContext = createRunContext();
 
             Append append = Append.builder()
                 .accessToken(Property.ofValue("test-token"))
@@ -271,7 +271,7 @@ class ReadTest {
             .maxRecords(Property.ofValue(100))
             .build();
 
-        RunContext runContext = createRunContext();
+        var runContext = createRunContext();
 
         String query = task.buildQueryString(runContext);
 
@@ -286,7 +286,7 @@ class ReadTest {
             .maxRecords(Property.ofValue(100))
             .build();
 
-        RunContext runContext = createRunContext();
+        var runContext = createRunContext();
 
         String query = task.buildQueryString(runContext);
 
@@ -301,7 +301,7 @@ class ReadTest {
             .maxRecords(Property.ofValue(100))
             .build();
 
-        RunContext runContext = createRunContext();
+        var runContext = createRunContext();
 
         String query = task.buildQueryString(runContext);
 
@@ -316,7 +316,7 @@ class ReadTest {
             .maxRecords(Property.ofValue(100))
             .build();
 
-        RunContext runContext = createRunContext();
+        var runContext = createRunContext();
 
         String query = task.buildQueryString(runContext);
 
@@ -331,7 +331,7 @@ class ReadTest {
             .timestamp(Property.ofValue(123456789L))
             .build();
 
-        RunContext runContext = createRunContext();
+        var runContext = createRunContext();
 
         IllegalArgumentException exception = assertThrows(
             IllegalArgumentException.class,
@@ -351,7 +351,7 @@ class ReadTest {
             .maxRecords(Property.ofValue(100))
             .build();
 
-        RunContext runContext = createRunContext();
+        var runContext = createRunContext();
 
         String query = task.buildQueryString(runContext);
 
@@ -365,7 +365,7 @@ class ReadTest {
             .maxRecords(Property.ofValue(1001))
             .build();
 
-        RunContext runContext = createRunContext();
+        var runContext = createRunContext();
 
         IllegalArgumentException exception = assertThrows(
             IllegalArgumentException.class,
@@ -404,7 +404,7 @@ class ReadTest {
 
     @Test
     void shouldIncludeStatusAndResponseBody() {
-        String message = Read.buildErrorMessage(
+        var message = Read.buildErrorMessage(
             404,
             "stream_not_found"
         );
@@ -431,7 +431,7 @@ class ReadTest {
 
     @Test
     void shouldFailWhenStreamMissing() throws Exception {
-        Path initFile = createInitFile();
+        var initFile = createInitFile();
 
         try (GenericContainer<?> s2 = new GenericContainer<>(
             "ghcr.io/s2-streamstore/s2:0.43.1"
@@ -464,5 +464,54 @@ class ReadTest {
 
             assertThat(exception.getMessage(), containsString("HTTP status 404"));
         }
+    }
+
+    @Test
+    void shouldRejectEmptyResponseBody() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> Read.parseResponse("")
+        );
+
+        assertThat(exception.getMessage(), containsString("Empty response"));
+    }
+
+    @Test
+    void shouldRejectNullResponseBody() {
+        assertThrows(
+            IllegalStateException.class,
+            () -> Read.parseResponse(null)
+        );
+    }
+
+    @Test
+    void shouldRejectJsonNullBody() {
+        IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> Read.parseResponse("null")
+        );
+
+        assertThat(exception.getMessage(), containsString("Incomplete response"));
+    }
+
+    @Test
+    void shouldParseRecordsAndTail() throws Exception {
+        Read.ReadBatch batch = Read.parseResponse(
+            "{\"records\":[{\"seq_num\":4,\"timestamp\":1,\"body\":\"a\"}],\"tail\":{\"seq_num\":5,\"timestamp\":1}}"
+        );
+
+        assertThat(batch.getRecords().size(), is(1));
+        assertThat(batch.getRecords().get(0).getSeqNum(), is(4L));
+        assertThat(batch.getTail().getSeqNum(), is(5L));
+    }
+
+    @Test
+    void shouldParseTailOnlyBody() throws Exception {
+        Read.ReadBatch batch = Read.parseResponse(
+            "{\"tail\":{\"seq_num\":7,\"timestamp\":1}}"
+        );
+
+        assertThat(batch.getRecords() == null, is(true));
+        assertThat(batch.getTail().getSeqNum(), is(7L));
     }
 }
