@@ -10,22 +10,14 @@ Every task and trigger needs these properties:
 - `basin` (required): the name of the S2 basin that holds your streams. Basin names are 8 to 48 characters of lowercase letters, numbers and hyphens, and cannot begin or end with a hyphen.
 - `basinEndpoint` (optional): the basin API URL. The default is `https://{basin}.b.s2.dev/v1`, where `{basin}` is replaced by the `basin` value. If the URL has no `{basin}` placeholder, the basin is sent in the `S2-Basin` header instead. This is how you point the plugin at a custom endpoint or at [s2-lite](https://github.com/s2-streamstore/s2), for example `http://localhost:8080/v1`.
 
-To avoid repeating these on every task, set them once with [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults):
-
-```yaml
-pluginDefaults:
-  - type: io.kestra.plugin.s2
-    values:
-      accessToken: "{{ secret('S2_ACCESS_TOKEN') }}"
-      basin: my-basin
-```
+To avoid repeating these properties on every task, Kestra 1.x lets you set them once with plugin defaults. [`pluginDefaults` was removed in Kestra 2.0](https://kestra.io/docs/migration-guide/v2.0.0/plugin-defaults-removed): Enterprise Edition uses [Policies](https://kestra.io/docs/enterprise/governance/policies) instead, and in the open-source edition you set the properties on each task.
 
 ## Tasks
 
 | Task | What it does | Required | Optional | Outputs |
 | --- | --- | --- | --- | --- |
 | `CreateStream` | Creates a stream | `stream` | | `name`, `createdAt`, `cipher`, `deletedAt` |
-| `DeleteStream` | Deletes a stream and its records | `stream` | | none |
+| `DeleteStream` | Requests deletion of a stream and its records | `stream` | | none |
 | `ListStreams` | Lists streams in the basin | | `prefix`, `startAfter`, `limit` (0 to 1000, default 1000) | `streams`, `hasMore` |
 | `Append` | Appends records to a stream | `stream`, `records` | | `start`, `end`, `tail` |
 | `Read` | Reads records from a stream | `stream` | `seqNum`, `timestamp`, `tailOffset`, `fetchType`, `maxRecords` | `records`, `record`, `uri`, `size`, `tail` |
@@ -46,7 +38,7 @@ Outputs: `name` (the stream name), `createdAt` (the stream creation time), `ciph
 
 ### DeleteStream
 
-Deletes the specified stream and its records from the configured basin. Set `stream` to the name of the stream to delete.
+Requests deletion of the specified stream and its records from the configured basin. S2 completes the deletion asynchronously. Set `stream` to the name of the stream to delete.
 
 This task has no output.
 
