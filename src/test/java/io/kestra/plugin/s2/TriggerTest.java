@@ -140,7 +140,7 @@ class TriggerTest {
             .basin(Property.ofValue("test-basin"))
             .basinEndpoint(Property.ofValue(endpoint))
             .stream(Property.ofValue("orders"))
-            .records(Data.from(records))
+            .from(records)
             .build()
             .run(runContextFactory.of(flow, Map.of()));
     }

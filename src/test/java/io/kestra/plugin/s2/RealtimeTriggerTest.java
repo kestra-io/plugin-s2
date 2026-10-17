@@ -128,7 +128,7 @@ class RealtimeTriggerTest {
             .basin(Property.ofValue("test-basin"))
             .basinEndpoint(Property.ofValue(endpoint))
             .stream(Property.ofValue("orders"))
-            .records(Data.from(records))
+            .from(records)
             .build();
 
         append.run(runContextFactory.of(flow, Map.of()));

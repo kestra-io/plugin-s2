@@ -105,11 +105,11 @@ class ReadTest {
                 .basin(Property.ofValue("test-basin"))
                 .basinEndpoint(Property.ofValue(endpoint))
                 .stream(Property.ofValue("orders"))
-                .records(Data.from(List.of(
+                .from(List.of(
                     Map.of("body", "order created"),
                     Map.of("body", "order shipped"),
                     Map.of("body", "order delivered")
-                )))
+                ))
                 .build();
 
             var runContext = createRunContext();
@@ -179,11 +179,11 @@ class ReadTest {
                 .basin(Property.ofValue("test-basin"))
                 .basinEndpoint(Property.ofValue(endpoint))
                 .stream(Property.ofValue("orders"))
-                .records(Data.from(List.of(
+                .from(List.of(
                     Map.of("body", "order created"),
                     Map.of("body", "order shipped"),
                     Map.of("body", "order delivered")
-                )))
+                ))
                 .build();
 
             append.run(runContext);
@@ -239,11 +239,11 @@ class ReadTest {
                 .basin(Property.ofValue("test-basin"))
                 .basinEndpoint(Property.ofValue(endpoint))
                 .stream(Property.ofValue("orders"))
-                .records(Data.from(List.of(
+                .from(List.of(
                     Map.of("body", "order created"),
                     Map.of("body", "order shipped"),
                     Map.of("body", "order delivered")
-                )))
+                ))
                 .build();
 
             append.run(runContext);

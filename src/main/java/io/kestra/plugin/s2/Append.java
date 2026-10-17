@@ -51,13 +51,13 @@ import java.util.Map;
                     accessToken: "{{ secret('S2_ACCESS_TOKEN') }}"
                     basin: my-basin
                     stream: orders
-                    records:
+                    from:
                       - body: "order created"
                 """
         )
     }
 )
-public class Append extends AbstractS2Task implements RunnableTask<Append.Output> {
+public class Append extends AbstractS2Task implements RunnableTask<Append.Output>, Data.From {
 
     @NotNull
     @Schema(
@@ -69,11 +69,12 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
 
     @NotNull
     @Schema(
-        title = "Records",
-        description = "Records to append to the S2 stream."
+        title = Data.From.TITLE,
+        description = Data.From.DESCRIPTION,
+        anyOf = { String.class, List.class, Record.class }
     )
     @PluginProperty(group = "main")
-    private Data records;
+    private Object from;
 
     @Override
     public Output run(RunContext runContext) throws Exception {
@@ -83,11 +84,11 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
             .filter(value -> !value.isBlank())
             .orElseThrow(() -> new IllegalArgumentException("'stream' is required"));
 
-        if (this.records == null) {
-            throw new IllegalArgumentException("'records' is required");
+        if (this.from == null) {
+            throw new IllegalArgumentException("'from' is required");
         }
 
-        Flux<Record> records = this.records.readAs(
+        Flux<Record> records = Data.from(this.from).readAs(
             runContext,
             Record.class,
             map -> JacksonMapper.ofJson().convertValue(map, Record.class)
@@ -96,7 +97,7 @@ public class Append extends AbstractS2Task implements RunnableTask<Append.Output
         var recordList = records.take(1001).collectList().block();
 
         if (recordList == null || recordList.isEmpty()) {
-            throw new IllegalArgumentException("'records' must contain at least one record");
+            throw new IllegalArgumentException("'from' must contain at least one record");
         }
 
         if (recordList.size() > 1000) {

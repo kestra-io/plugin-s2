@@ -2,11 +2,12 @@ package io.kestra.plugin.s2;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.flows.Flow;
-import io.kestra.core.models.property.Data;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.serializers.FileSerde;
+import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.serializers.YamlParser;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.BindMode;
@@ -29,6 +30,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.hamcrest.Matchers.instanceOf;
 
 @KestraTest
 class AppendTest {
@@ -107,7 +109,7 @@ class AppendTest {
                 .basin(Property.ofValue("test-basin"))
                 .basinEndpoint(Property.ofValue(endpoint))
                 .stream(Property.ofValue("orders"))
-                .records(Data.from(List.of(
+                .from(List.of(
                     Map.of(
                         "body", "order created",
                         "headers", List.of(
@@ -115,7 +117,7 @@ class AppendTest {
                             List.of("type", "plugin")
                         )
                     )
-                )))
+                ))
                 .build();
 
             RunContext runContext = createRunContext();
@@ -172,9 +174,7 @@ class AppendTest {
             .accessToken(Property.ofValue("test-token"))
             .basin(Property.ofValue("test-basin"))
             .basinEndpoint(Property.ofValue("http://localhost:1234/v1"))
-            .records(Data.from(List.of(
-                Map.of("body", "order created")
-            )))
+            .from(List.of(Map.of("body", "order created")))
             .build();
 
         RunContext runContext = createRunContext();
@@ -188,7 +188,7 @@ class AppendTest {
     }
 
     @Test
-    void shouldRequireRecords() throws Exception {
+    void shouldRequireFrom() throws Exception {
         Append task = Append.builder()
             .accessToken(Property.ofValue("test-token"))
             .basin(Property.ofValue("test-basin"))
@@ -203,7 +203,7 @@ class AppendTest {
             () -> task.run(runContext)
         );
 
-        assertThat(exception.getMessage(), is("'records' is required"));
+        assertThat(exception.getMessage(), is("'from' is required"));
     }
 
     @Test
@@ -213,7 +213,7 @@ class AppendTest {
             .basin(Property.ofValue("test-basin"))
             .basinEndpoint(Property.ofValue("http://localhost:1234/v1"))
             .stream(Property.ofValue("orders"))
-            .records(Data.from(List.of()))
+            .from(List.of())
             .build();
 
         RunContext runContext = createRunContext();
@@ -225,7 +225,7 @@ class AppendTest {
 
         assertThat(
             exception.getMessage(),
-            is("'records' must contain at least one record")
+            is("'from' must contain at least one record")
         );
     }
 
@@ -240,7 +240,7 @@ class AppendTest {
             .basin(Property.ofValue("test-basin"))
             .basinEndpoint(Property.ofValue("http://localhost:1234/v1"))
             .stream(Property.ofValue("orders"))
-            .records(Data.from(records))
+            .from(records)
             .build();
 
         RunContext runContext = createRunContext();
@@ -370,7 +370,7 @@ class AppendTest {
                 .basin(Property.ofValue("test-basin"))
                 .basinEndpoint(Property.ofValue(endpoint))
                 .stream(Property.ofValue("orders"))
-                .records(Data.from(uri.toString()))
+                .from(uri.toString())
                 .build();
 
             Append.Output output = task.run(runContext);
@@ -428,5 +428,44 @@ class AppendTest {
         assertThat(output.getStart(), is(0L));
         assertThat(output.getEnd(), is(2L));
         assertThat(output.getTail(), is(2L));
+    }
+
+    @Test
+    void shouldParseExampleFlow() {
+
+        String yaml = Append.class.getAnnotation(Plugin.class).examples()[0].code()[0];
+
+        YamlParser yamlParser = new YamlParser();
+
+        Flow flow = yamlParser.parse(yaml, Flow.class);
+
+        assertThat(flow.getTasks().size(), is(1));
+        assertThat(flow.getTasks().get(0), is(instanceOf(Append.class)));
+
+        Append task = (Append) flow.getTasks().get(0);
+
+        assertThat(task.getFrom(), is(instanceOf(List.class)));
+    }
+
+    @Test
+    void shouldParseFileUriFrom() {
+        String yaml = """
+            id: append_from_file
+            namespace: company.team
+
+            tasks:
+              - id: append
+                type: io.kestra.plugin.s2.Append
+                accessToken: "{{ secret('S2_ACCESS_TOKEN') }}"
+                basin: my-basin
+                stream: orders
+                from: "kestra:///records.ion"
+            """;
+
+        YamlParser yamlParser = new YamlParser();
+
+        Flow flow = yamlParser.parse(yaml, Flow.class);
+
+        assertThat(((Append) flow.getTasks().get(0)).getFrom(), is("kestra:///records.ion"));
     }
 }

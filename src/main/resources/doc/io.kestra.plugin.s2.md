@@ -14,21 +14,21 @@ To avoid repeating these properties on every task, Kestra 1.x lets you set them 
 
 ## Tasks
 
-| Task | What it does | Required | Optional | Outputs |
-| --- | --- | --- | --- | --- |
-| `CreateStream` | Creates a stream | `stream` | | `name`, `createdAt`, `cipher`, `deletedAt` |
-| `DeleteStream` | Requests deletion of a stream and its records | `stream` | | none |
-| `ListStreams` | Lists streams in the basin | | `prefix`, `startAfter`, `limit` (0 to 1000, default 1000) | `streams`, `hasMore` |
-| `Append` | Appends records to a stream | `stream`, `records` | | `start`, `end`, `tail` |
-| `Read` | Reads records from a stream | `stream` | `seqNum`, `timestamp`, `tailOffset`, `fetchType`, `maxRecords` | `records`, `record`, `uri`, `size`, `tail` |
+| Task | What it does | Required         | Optional | Outputs |
+| --- | --- |------------------| --- | --- |
+| `CreateStream` | Creates a stream | `stream`         | | `name`, `createdAt`, `cipher`, `deletedAt` |
+| `DeleteStream` | Requests deletion of a stream and its records | `stream`         | | none |
+| `ListStreams` | Lists streams in the basin |                  | `prefix`, `startAfter`, `limit` (0 to 1000, default 1000) | `streams`, `hasMore` |
+| `Append` | Appends records to a stream | `stream`, `from` | | `start`, `end`, `tail` |
+| `Read` | Reads records from a stream | `stream`         | `seqNum`, `timestamp`, `tailOffset`, `fetchType`, `maxRecords` | `records`, `record`, `uri`, `size`, `tail` |
 
 ### Append
 
-`records` is either an inline list or the `kestra://` URI of a file in internal storage. A request holds 1 to 1000 records. Each record has a `body`, and optionally `headers` (a list of name and value pairs) and a `timestamp`. The outputs are the sequence number of the first appended record (`start`), the number just after the last one (`end`), and the number the next record will get (`tail`).
+`from` is the records to append: a list of records, a single record, a JSON string, or the `kestra://` URI of a file in internal storage.
 
 ### Read
 
-Set at most one of `seqNum`, `timestamp` or `tailOffset` to choose where reading starts. With none of them, `Read` returns the latest `maxRecords` records. `maxRecords` is between 1 and 1000 and defaults to 100. `fetchType` is `FETCH` (records in `records`), `FETCH_ONE` (a single record in `record`), or `STORE` (the default, records saved to internal storage and returned as `uri`). `size` is the number of records read and `tail` is the sequence number the next record will get.
+Set at most one of `seqNum`, `timestamp` or `tailOffset` to choose where reading starts. With none of them, `Read` returns the latest `maxRecords` records. `maxRecords` is between 1 and 1000 and defaults to 100. `fetchType` is `FETCH` (records in `records`), `FETCH_ONE` (a single record in `record`), or `STORE` (the default, records saved to internal storage and returned as `uri`). `size` is the number of records read and `tail` is the sequence number the next record will get,  when S2 returns it.
 
 ### CreateStream
 
@@ -58,7 +58,7 @@ Both triggers save the last delivered sequence number in the namespace KV store.
 
 Polls the stream every `interval` (default one minute) and starts one execution with all new records, up to `maxRecords` per poll (1 to 1000, default 100).
 
-Outputs: `records` (the new records), `size` (how many), and `tail`.
+Outputs: `records` (the new records), `size` (how many), and `tail` (the sequence number the next record will get, only when S2 returns it).
 
 ### RealtimeTrigger
 
