@@ -39,14 +39,18 @@
 
 ## Why
 
-- What user problem does this solve? Teams need a concrete starting point for building and validating new Kestra plugins without recreating the same project scaffolding from scratch.
-- Why would a team adopt this plugin in a workflow? It gives plugin authors a ready-made reference repo they can adapt alongside their own build, test, and publishing workflow.
-- What operational/business outcome does it enable? It shortens plugin delivery time, reduces setup mistakes, and makes internal or partner plugin development more repeatable.
+- Stream management: Create, list, and delete S2 streams directly from Kestra workflows.
+- Data integration: Append records to S2 streams and read records as part of workflow execution.
+- Event-driven workflows: Start Kestra flow executions when records become available, using polling or realtime event consumption.
+- The plugin enables Kestra workflows to manage S2 stream data and respond to incoming events without requiring custom integration code in each workflow.
 
 ## What
 
-- Provides plugin components under `io.kestra.plugin.s2`.
-- Includes classes such as `Example`, `Trigger`.
+- Plugin tasks and triggers live in io.kestra.plugin.s2.
+- `CreateStream`, `DeleteStream`, and `ListStreams` manage S2 streams.
+- `Append` writes records to an S2 stream, while `Read` reads records from a stream.
+- `Trigger` polls an S2 stream for records and starts Kestra flow executions when records are available.
+- `RealtimeTrigger` consumes S2 stream events through Server Sent Events (SSE) and starts Kestra flow executions for incoming records.
 
 ## Running Kestra locally with this plugin
 

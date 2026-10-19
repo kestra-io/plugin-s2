@@ -2,7 +2,7 @@ group: io.kestra.plugin.s2
 name: "s2"
 title: "S2"
 description: "S2 plugin for Kestra"
-body: ""
+body: "Manage S2 streams, append and read records, and trigger Kestra workflows from incoming stream events."
 videos: []
 createdBy: "Kestra Core Team"
 managedBy: "Kestra Core Team"
